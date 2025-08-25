@@ -1,0 +1,13 @@
+{
+  "name": "real-estate-rag",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "@supabase/supabase-js": "^2.38.0",
+    "openai": "^4.0.0"
+  }
+}
