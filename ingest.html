@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Ingest PDFs → Supabase</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
+    .log { white-space: pre-wrap; background: #f7f7f7; padding: 10px; border: 1px solid #ddd; height: 240px; overflow: auto; }
+  </style>
+  <!-- PDF.js (browser) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // point the worker to the same CDN version
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+</head>
+<body>
+  <h1>Load PDFs into Supabase (for RAG)</h1>
+  <p>Select one or more small PDFs. This page will extract text, chunk it, and send it to the server to embed and store.</p>
+
+  <input type="file" id="files" accept="application/pdf" multiple />
+  <button id="go">Ingest</button>
+
+  <h3>Log</h3>
+  <div class="log" id="log"></div>
+
+  <script>
+    const log = (m) => {
+      const el = document.getElementById('log');
+      el.textContent += m + "\\n";
+      el.scrollTop = el.scrollHeight;
+    };
+
+    async function pdfToText(file) {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let full = "";
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const tc = await page.getTextContent();
+        const pageText = tc.items.map(i => i.str).join(" ");
+        full += "\\n\\n" + pageText;
+      }
+      return full.trim();
+    }
+
+    // simple character-based chunking with overlap
+    function chunkText(text, size = 1200, overlap = 200) {
+      const chunks = [];
+      let i = 0;
+      while (i < text.length) {
+        const end = Math.min(text.length, i + size);
+        const chunk = text.slice(i, end);
+        chunks.push(chunk);
+        i += (size - overlap);
+      }
+      return chunks;
+    }
+
+    document.getElementById('go').onclick = async () => {
+      const files = Array.from(document.getElementById('files').files || []);
+      if (!files.length) { alert("Choose at least one PDF."); return; }
+
+      for (const f of files) {
+        try {
+          log(`Reading: ${f.name}`);
+          const text = await pdfToText(f);
+          if (!text) { log(`(no text found) ${f.name}`); continue; }
+
+          const chunks = chunkText(text);
+          log(`Extracted ${chunks.length} chunks from ${f.name}. Sending to server…`);
+
+          const res = await fetch('/api/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: f.name,
+              chunks,
+              metadata: { filename: f.name, size: f.size }
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Server error');
+          log(`✅ ${f.name}: stored ${data.inserted} chunks`);
+        } catch (e) {
+          log(`❌ ${f.name}: ${e.message}`);
+        }
+      }
+
+      log(`Done.`);
+    };
+  </script>
+</body>
+</html>
