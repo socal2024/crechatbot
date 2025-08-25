@@ -7,50 +7,50 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Get embeddings for all chunks (Gemini embedding model, 3072-d by default)
-    const embedResp = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': process.env.GOOGLE_API_KEY
-        },
-        body: JSON.stringify({
-          model: 'models/gemini-embedding-001',
-          // Multiple chunks in one request (API supports batching)
-          content: chunks.map(text => ({ parts: [{ text }] }))
-          // Keeping defaults: 3072 dims, task type auto.
-          // (Later you can switch to 768 dims for space savings)
-        })
+    const vectors = [];
+
+    // 1) Get embedding for each chunk separately
+    for (const text of chunks) {
+      const resp = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': process.env.GOOGLE_API_KEY
+          },
+          body: JSON.stringify({
+            model: 'models/gemini-embedding-001',
+            content: { parts: [{ text }] }
+          })
+        }
+      );
+
+      const json = await resp.json();
+      if (!resp.ok) {
+        throw new Error(json.error?.message || 'Embedding failed');
       }
-    );
 
-    const embedJson = await embedResp.json();
-    if (!embedResp.ok) {
-      return res.status(500).json({ error: `Embedding API error: ${embedJson.error?.message || 'unknown'}` });
-    }
-    const vectors = (embedJson.embeddings || []).map(e => e.values);
-    if (vectors.length !== chunks.length) {
-      return res.status(500).json({ error: 'Embedding count mismatch' });
+      vectors.push(json.embedding?.values);
     }
 
-    // 2) Insert rows into Supabase via PostgREST (no SDK needed)
+    // 2) Prepare rows for Supabase
     const rows = chunks.map((content, i) => ({
       title,
       chunk_index: i,
       content,
-      embedding: vectors[i], // pgvector accepts JSON array via PostgREST
+      embedding: vectors[i],
       metadata: metadata || null
     }));
 
+    // 3) Insert into Supabase
     const sbResp = await fetch(`${process.env.SUPABASE_URL}/rest/v1/documents`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
         'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer': 'resolution=merge-duplicates' // harmless; allows array insert
+        'Prefer': 'resolution=merge-duplicates'
       },
       body: JSON.stringify(rows)
     });
