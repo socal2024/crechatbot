@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // Gemini clients
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
