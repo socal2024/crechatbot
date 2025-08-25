@@ -9,35 +9,54 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+// Supabase client
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// Store document
+// Gemini clients
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const chatModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+
+// Add a document (store its embedding)
 app.post('/add-document', async (req, res) => {
-    const { content } = req.body;
-    // Simple placeholder for embeddings (Gemini embeddings API could replace this)
-    const embedding = Array(1536).fill(0); // TODO: replace with Gemini embeddings API
-    await supabase.from('documents').insert([{ content, embedding }]);
-    res.send({ success: true });
+    try {
+        const { content } = req.body;
+        const embeddingResponse = await embedModel.embedContent(content);
+        const embedding = embeddingResponse.embedding.values;
+
+        await supabase.from('documents').insert([{ content, embedding }]);
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to add document' });
+    }
 });
 
-// Query documents and chat
+// Chat with retrieval
 app.post('/chat', async (req, res) => {
-    const { query } = req.body;
+    try {
+        const { query } = req.body;
+        const queryEmbedding = (await embedModel.embedContent(query)).embedding.values;
 
-    // Retrieve top 3 documents (stubbed similarity, ideally replace with Supabase pgvector search)
-    const { data: docs } = await supabase.from('documents').select('*').limit(3);
+        const { data: matches } = await supabase.rpc('match_documents', {
+            query_embedding: queryEmbedding,
+            match_count: 3
+        });
 
-    const context = docs.map(d => d.content).join("\n");
+        const context = matches.map(m => m.content).join("\n");
 
-    const result = await model.generateContent([
-        `You are a real estate investment assistant.`,
-        `Context:\n${context}`,
-        `User question: ${query}`
-    ]);
+        const result = await chatModel.generateContent([
+            `You are a helpful real estate investing assistant.`,
+            `Use this context to answer: ${context}`,
+            `Question: ${query}`
+        ]);
 
-    res.json({ answer: result.response.text() });
+        res.json({ answer: result.response.text() });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to get answer' });
+    }
 });
 
 app.listen(3000, () => console.log("Server running on port 3000"));
