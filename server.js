@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 const app = express();
@@ -10,43 +10,34 @@ app.use(cors());
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const openai = new OpenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// Store a document with embedding
+// Store document
 app.post('/add-document', async (req, res) => {
     const { content } = req.body;
-    const embedding = await openai.embeddings.create({
-        model: "text-embedding-004",
-        input: content
-    });
-    await supabase.from('documents').insert([{ content, embedding: embedding.data[0].embedding }]);
+    // Simple placeholder for embeddings (Gemini embeddings API could replace this)
+    const embedding = Array(1536).fill(0); // TODO: replace with Gemini embeddings API
+    await supabase.from('documents').insert([{ content, embedding }]);
     res.send({ success: true });
 });
 
-// Query documents and respond
+// Query documents and chat
 app.post('/chat', async (req, res) => {
     const { query } = req.body;
-    const queryEmbedding = await openai.embeddings.create({
-        model: "text-embedding-004",
-        input: query
-    });
 
-    const { data } = await supabase.rpc('match_documents', {
-        query_embedding: queryEmbedding.data[0].embedding,
-        match_count: 3
-    });
+    // Retrieve top 3 documents (stubbed similarity, ideally replace with Supabase pgvector search)
+    const { data: docs } = await supabase.from('documents').select('*').limit(3);
 
-    const context = data.map(d => d.content).join("\n");
+    const context = docs.map(d => d.content).join("\n");
 
-    const response = await openai.chat.completions.create({
-        model: "gemini-2.0-flash",
-        messages: [
-            { role: "system", content: "You are a real estate investment assistant." },
-            { role: "user", content: `Context:\n${context}\n\nQuestion: ${query}` }
-        ]
-    });
+    const result = await model.generateContent([
+        `You are a real estate investment assistant.`,
+        `Context:\n${context}`,
+        `User question: ${query}`
+    ]);
 
-    res.json({ answer: response.choices[0].message.content });
+    res.json({ answer: result.response.text() });
 });
 
 app.listen(3000, () => console.log("Server running on port 3000"));
