@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Chatbot</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; }
+    #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; }
+    input { width: 80%; padding: 10px; }
+    button { padding: 10px; }
+    .msg { margin: 5px 0; }
+    .user { color: blue; }
+    .bot { color: green; }
+  </style>
+</head>
+<body>
+  <h1>My Chatbot</h1>
+  <div id="chat"></div>
+  <input id="input" placeholder="Ask something..." />
+  <button onclick="sendMessage()">Send</button>
+
+  <script>
+    async function sendMessage() {
+      const input = document.getElementById('input');
+      const chat = document.getElementById('chat');
+      const userMsg = input.value;
+      if (!userMsg) return;
+
+      chat.innerHTML += `<div class="msg user"><b>You:</b> ${userMsg}</div>`;
+      input.value = '';
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg })
+      });
+      const data = await res.json();
+      chat.innerHTML += `<div class="msg bot"><b>Bot:</b> ${data.reply}</div>`;
+      chat.scrollTop = chat.scrollHeight;
+    }
+  </script>
+</body>
+</html>
